@@ -201,6 +201,8 @@ cython_debug/
 .cursorignore
 .cursorindexingignore
 
+.vscode
+
 # Marimo
 marimo/_static/
 marimo/_lsp/
@@ -208,6 +210,18 @@ __marimo__/
 
 test_performance.py
 
-backend/init_db.py
 backend/app.py
 backend/monte_carlo.py
+backend/megamillions.py
+backend/powerball.py
+backend/superlottoplus.py
+backend/fantasy5.py
+
+performance_comparison.png
+performance_report.txt
+
+selective-security/selective_app.py
+selective-security/lottery_data.db
+blanket-security/blanket_app.py
+blanket-security/lottery_data.db
+

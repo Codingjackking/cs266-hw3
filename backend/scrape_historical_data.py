@@ -15,8 +15,8 @@ import re
 
 # Setup directories
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-BACKEND_DIR = os.path.join(BASE_DIR, "backend")
-DATA_DIR = os.path.join(BACKEND_DIR, "data")
+# BACKEND_DIR = os.path.join(BASE_DIR, "backend")
+DATA_DIR = os.path.join(BASE_DIR, "data")
 os.makedirs(DATA_DIR, exist_ok=True)
 
 HEADERS = {

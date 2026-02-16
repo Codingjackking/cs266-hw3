@@ -40,7 +40,7 @@ The database initialization now loads REAL scraped data:
 python3 init_db.py
 ```
 
-This loads the CSV files into SQLite for the security demo.
+This loads the CSV files into SQLite for the demo.
 
 ## Pipeline Architecture
 
@@ -102,7 +102,6 @@ This loads the CSV files into SQLite for the security demo.
 
 ```cmd
 setup.bat      REM One-time setup (scrapes data, initializes DB)
-run_demo.bat   REM Automated demo with performance tests
 ```
 
 **See WINDOWS_GUIDE.md for detailed Windows instructions**
@@ -111,7 +110,6 @@ run_demo.bat   REM Automated demo with performance tests
 
 ```bash
 ./setup.sh      # One-time setup (scrapes data, initializes DB)
-./run_demo.sh   # Automated demo with performance tests
 ```
 
 ### Manual Testing (All Platforms)
@@ -140,22 +138,12 @@ Access at: http://localhost:5002
 python test_performance.py   # Windows: python | Linux/Mac: python3
 ```
 
-## Key Metrics Comparison
-
-| Metric            | Selective | Blanket   | Improvement         |
-| ----------------- | --------- | --------- | ------------------- |
-| Avg Response Time | ~120ms    | ~280ms    | 57% faster          |
-| Throughput        | 850 req/s | 380 req/s | 124% higher         |
-| Security Coverage | 85%       | 100%      | -15%                |
-| Code Complexity   | Medium    | High      | Lower maintenance   |
-| Residual Risk     | Low       | Very Low  | Acceptable tradeoff |
-
 ## Lottery Types Supported
 
 - Powerball
 - Mega Millions
 - SuperLotto Plus
-- Cash4Life
+- fantasy5
 
 ## Technologies
 
