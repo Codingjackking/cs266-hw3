@@ -49,7 +49,7 @@ def scrape_year(year):
 # Iterate through years and scrape data
 all_data = []
 
-for year in range(1992, 2015):
+for year in range(1992, 2016):
     print(f"Scraping Powerball {year}...")
     year_data = scrape_year(year)
     all_data.extend(year_data)
