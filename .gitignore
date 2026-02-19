@@ -209,16 +209,12 @@ marimo/_lsp/
 __marimo__/
 
 test_performance.py
+test_performance1.py
 
-backend/app.py
-backend/monte_carlo.py
 backend/megamillions.py
 backend/powerball.py
 backend/superlottoplus.py
 backend/fantasy5.py
-
-performance_comparison.png
-performance_report.txt
 
 selective-security/selective_app.py
 selective-security/lottery_data.db
