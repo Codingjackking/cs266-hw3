@@ -82,7 +82,7 @@ class PerformanceMetrics:
         }
 
 
-class EnhancedPerformanceTester:
+class PerformanceTester:
     def __init__(self):
         self.selective_token = None
         self.blanket_token = None
@@ -792,7 +792,7 @@ def main():
     print("Selective vs Blanket Endpoint Security Comparison")
     print()
 
-    tester = EnhancedPerformanceTester()
+    tester = PerformanceTester()
 
     try:
         tester.setup_users()

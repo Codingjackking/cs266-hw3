@@ -66,7 +66,7 @@ LOTTERY_RULES = {
 
 
 # ============================================================================
-# DATA LOADING WITH SECURITY
+# DATA LOADING
 # ============================================================================
 
 def load_lottery_data(lottery_type="powerball", csv_path=None, log_access=False, user_id=None):

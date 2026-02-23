@@ -189,7 +189,7 @@ def validate_critical(f):
     return wrapper
 
 # ============================================================================
-# PUBLIC ENDPOINTS - No Security (Fast)
+# PUBLIC ENDPOINTS - No Security 
 # ============================================================================
 
 @app.route('/api/health', methods=['GET'])

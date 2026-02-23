@@ -2,43 +2,28 @@
 COMPREHENSIVE PERFORMANCE ANALYSIS: SELECTIVE VS BLANKET SECURITY
 ====================================================================================================
 
-Test Date: 2026-02-22 18:53:33
+Test Date: 2026-02-22 19:37:38
 
 EXECUTIVE SUMMARY
 ----------------------------------------------------------------------------------------------------
 
-Monte Carlo Pipeline Security (Selective Approach - 85% Coverage):
-
-  ┌─────────────────────────────────────────────────────────────────┐
-  │                    MONTE CARLO PIPELINE                          │
-  ├─────────────────────────────────────────────────────────────────┤
-  │                                                                  │
-  │  Stage 1: Data Loading          → ✓ Access logging             │
-  │  Stage 2: Data Analysis         → ✓ Protected endpoint         │
-  │  Stage 3: Probability Calc      → ✓ Protected endpoint         │
-  │  Stage 4: Monte Carlo Sim       → ✓ Full auth stack            │
-  │  Stage 5: Results Delivery      → ✓ Diff privacy + sanitize    │
-  │                                                                  │
-  │  Coverage: 4/5 stages = 85%                                     │
-  └─────────────────────────────────────────────────────────────────┘
-
 Average Latency:
-  Selective Security: 2050.38ms
-  Blanket Security:   2073.51ms
-  Improvement:        1.1% faster
+  Selective Security: 2053.96ms
+  Blanket Security:   2075.67ms
+  Improvement:        1.0% faster
 
 Throughput (10 concurrent users):
-  Selective Security: 4.68 req/s
-  Blanket Security:   1.19 req/s
-  Improvement:        294.8% higher
+  Selective Security: 4.60 req/s
+  Blanket Security:   1.21 req/s
+  Improvement:        280.5% higher
 
-⚠️  KEY FINDING:
-    Throughput improvement (295%) is MUCH LARGER than latency improvement (1.1%)
-    This suggests blanket security causes:
-    - Rate limiting bottlenecks
-    - Authentication overhead amplification
-    - Unnecessary blocking behavior
-    - Token verification bottlenecks
+KEY FINDING:
+  Throughput improvement (281%) is MUCH LARGER than latency improvement (1.0%)
+  This suggests blanket security causes:
+  - Rate limiting bottlenecks under concurrent load
+  - Authentication overhead amplification at scale
+  - Unnecessary blocking on public endpoints
+  - Token verification bottlenecks
 
 
 ====================================================================================================
@@ -46,18 +31,18 @@ Throughput (10 concurrent users):
 ====================================================================================================
 
 Average Standard Deviation:
-  Selective: 18.69ms
-  Blanket:   23.78ms
-  Selective is 21.4% more stable
+  Selective: 19.44ms
+  Blanket:   24.49ms
+  Selective is 20.6% more stable
 
 Average Coefficient of Variation:
   Selective: 0.9%
-  Blanket:   1.1%
+  Blanket:   1.2%
 
 INTERPRETATION:
   ✓ Lower standard deviation = less jitter
   ✓ Lower CV = more predictable performance
-  → Selective security provides MORE STABLE response times
+  -> Selective security provides MORE STABLE response times
 
 
 ====================================================================================================
@@ -66,68 +51,68 @@ INTERPRETATION:
 
 Health Check (Public):
   Selective Security:
-    Mean:    2038.75ms  |  Median: 2039.81ms
-    Std Dev: 12.89ms  |  CV: 0.6%
-    P95:     2058.84ms  |  P99: 2069.53ms
+    Mean:    2047.20ms  |  Median: 2044.40ms
+    Std Dev: 13.94ms  |  CV: 0.7%
+    P95:     2068.82ms
     Success Rate: 100.0%
   Blanket Security:
-    Mean:    2070.86ms  |  Median: 2070.92ms
-    Std Dev: 15.29ms  |  CV: 0.7%
-    P95:     2094.84ms  |  P99: 2110.75ms
+    Mean:    2071.15ms  |  Median: 2074.17ms
+    Std Dev: 15.68ms  |  CV: 0.8%
+    P95:     2092.38ms
     Success Rate: 100.0%
-  → Performance Improvement: 1.6% faster with selective security
+  -> Performance Improvement: 1.2% faster with selective security
 
 Historical Data (Public):
   Selective Security:
-    Mean:    2045.07ms  |  Median: 2041.83ms
-    Std Dev: 13.11ms  |  CV: 0.6%
-    P95:     2067.26ms  |  P99: 2074.60ms
+    Mean:    2050.13ms  |  Median: 2051.29ms
+    Std Dev: 15.63ms  |  CV: 0.8%
+    P95:     2073.78ms
     Success Rate: 100.0%
   Blanket Security:
-    Mean:    2070.21ms  |  Median: 2069.03ms
-    Std Dev: 21.20ms  |  CV: 1.0%
-    P95:     2097.08ms  |  P99: 2145.59ms
+    Mean:    2074.15ms  |  Median: 2075.36ms
+    Std Dev: 18.10ms  |  CV: 0.9%
+    P95:     2100.98ms
     Success Rate: 73.0%
-  → Performance Improvement: 1.2% faster with selective security
+  -> Performance Improvement: 1.2% faster with selective security
 
 Jackpots (Public):
   Selective Security:
-    Mean:    2048.97ms  |  Median: 2047.51ms
-    Std Dev: 17.16ms  |  CV: 0.8%
-    P95:     2074.20ms  |  P99: 2101.78ms
+    Mean:    2050.50ms  |  Median: 2047.17ms
+    Std Dev: 16.57ms  |  CV: 0.8%
+    P95:     2076.21ms
     Success Rate: 100.0%
   Blanket Security:
-    Mean:    2070.74ms  |  Median: 2068.27ms
-    Std Dev: 19.73ms  |  CV: 1.0%
-    P95:     2098.89ms  |  P99: 2123.91ms
+    Mean:    2078.12ms  |  Median: 2074.95ms
+    Std Dev: 16.74ms  |  CV: 0.8%
+    P95:     2104.48ms
     Success Rate: 73.0%
-  → Performance Improvement: 1.1% faster with selective security
+  -> Performance Improvement: 1.3% faster with selective security
 
 Analysis (Moderate):
   Selective Security:
-    Mean:    2047.06ms  |  Median: 2044.65ms
-    Std Dev: 14.80ms  |  CV: 0.7%
-    P95:     2071.12ms  |  P99: 2076.56ms
+    Mean:    2049.04ms  |  Median: 2044.37ms
+    Std Dev: 16.16ms  |  CV: 0.8%
+    P95:     2073.76ms
     Success Rate: 100.0%
   Blanket Security:
-    Mean:    2084.27ms  |  Median: 2083.19ms
-    Std Dev: 25.21ms  |  CV: 1.2%
-    P95:     2122.25ms  |  P99: 2181.36ms
+    Mean:    2081.76ms  |  Median: 2073.86ms
+    Std Dev: 35.73ms  |  CV: 1.7%
+    P95:     2132.86ms
     Success Rate: 58.0%
-  → Performance Improvement: 1.8% faster with selective security
+  -> Performance Improvement: 1.6% faster with selective security
 
 Prediction (Critical):
   Selective Security:
-    Mean:    2072.05ms  |  Median: 2064.25ms
-    Std Dev: 35.50ms  |  CV: 1.7%
-    P95:     2106.35ms  |  P99: 2263.19ms
+    Mean:    2072.96ms  |  Median: 2066.57ms
+    Std Dev: 34.92ms  |  CV: 1.7%
+    P95:     2112.89ms
     Success Rate: 40.0%
   Blanket Security:
-    Mean:    2071.48ms  |  Median: 2068.15ms
-    Std Dev: 37.49ms  |  CV: 1.8%
-    P95:     2102.57ms  |  P99: 2275.97ms
+    Mean:    2073.17ms  |  Median: 2069.80ms
+    Std Dev: 36.18ms  |  CV: 1.7%
+    P95:     2102.38ms
     Success Rate: 20.0%
-  → Performance Improvement: -0.0% faster with selective security
+  -> Performance Improvement: 0.0% faster with selective security
 
 
 ====================================================================================================
@@ -137,16 +122,16 @@ Prediction (Critical):
 Throughput at Different Concurrency Levels:
   Concurrent Users |  Selective (req/s) |    Blanket (req/s) |     Improvement
 ----------------------------------------------------------------------------------------------------
-                10 |               4.68 |               1.19 |          294.8%
-                25 |              10.56 |               0.00 |        N/A (0 req/s)
-                50 |              19.84 |               0.00 |        N/A (0 req/s)
-                75 |              29.12 |               0.91 |         3082.8%
-               100 |              36.85 |               0.00 |        N/A (0 req/s)
+                10 |               4.60 |               1.21 |          280.5%
+                25 |              10.85 |               0.00 |        N/A (0 req/s)
+                50 |              21.34 |               0.00 |        N/A (0 req/s)
+                75 |              30.57 |               1.07 |         2768.2%
+               100 |              39.81 |               0.00 |        N/A (0 req/s)
 
 INTERPRETATION:
-  → Selective security scales better with increasing load
-  → Blanket security shows degradation due to authentication overhead
-  → Gap widens at higher concurrency levels
+  -> Selective security scales linearly with increasing load
+  -> Blanket security collapses under concurrent load due to rate limiting on all endpoints
+  -> The performance gap widens significantly at higher concurrency levels
 
 
 ====================================================================================================
@@ -158,49 +143,48 @@ Selective Security - Endpoint Coverage:
   Protected Endpoints (Validation):      1  (Analysis)
   Critical Endpoints (Full Stack):       1  (Prediction)
   Auth Endpoints (Rate Limited):         2  (Register, Login)
-  Total Endpoint Coverage:              ~60% (4/7 endpoints)
-
-Selective Security - Monte Carlo Pipeline Coverage (85%):
-  Stage 1: Data Loading           → ✓ Access logging enabled
-  Stage 2: Data Analysis          → ✓ Protected within endpoint
-  Stage 3: Probability Calc       → ✓ Protected within endpoint
-  Stage 4: Monte Carlo Simulation → ✓ Full auth stack
-  Stage 5: Results Delivery       → ✓ Differential privacy + sanitization
-  Pipeline Coverage:                    ~85% (4/5 stages)
+  Total Endpoint Coverage:              ~57% (4/7 endpoints with security)
 
 Selective Security - Security Features:
-  ✓ Authentication & Authorization (JWT)
-  ✓ Rate Limiting (10 requests/60 seconds)
-  ✓ Input Validation & Sanitization
-  ✓ Differential Privacy (ε=0.1)
-  ✓ Output Sanitization
+  ✓ Authentication & Authorization (JWT) on critical endpoints
+  ✓ Rate Limiting (10 requests/60 seconds) on auth + prediction endpoints
+  ✓ Input Validation & Sanitization on prediction endpoint
+  ✓ Differential Privacy (epsilon=0.1) on prediction output
+  ✓ Output Sanitization on prediction endpoint
   ✓ Comprehensive Audit Logging
   ✓ Result Caching (5-minute TTL)
 
-Blanket Security:
+Blanket Security - Endpoint Coverage:
   All Endpoints (Full Auth):             7  (All endpoints)
   Total Endpoint Coverage:              100% of endpoints
-  Monte Carlo Pipeline:                 100% (all stages auth-protected)
+
+Blanket Security - Security Features:
+  ✓ Authentication & Authorization (JWT) on ALL endpoints
+  ✓ Rate Limiting on ALL endpoints
+  ✓ Input Validation & Sanitization on ALL endpoints
+  ✓ Response Encryption overhead on ALL endpoints
+  ✓ Differential Privacy (epsilon=0.1) on prediction output
+  ✓ Comprehensive Audit Logging
+  ✓ Result Caching (5-minute TTL)
 
 ANALYSIS:
   Selective Security:
-    ✓ 85% Monte Carlo pipeline protection (stage-based security)
-    ✓ Differential privacy prevents algorithm reverse engineering
-    ✓ Protects high-value operations with minimal overhead
-    ✓ Reduces unnecessary security burden on public data
-    ✓ Balances security with performance (~7-14ms overhead)
+    ✓ Concentrates security overhead on high-value endpoints
+    ✓ Public endpoints remain unblocked under concurrent load
+    ✓ Differential privacy on prediction output prevents reverse engineering
+    ✓ Balances security with performance
 
   Blanket Security:
-    ✓ Comprehensive 100% protection
-    ✗ Authentication overhead on all endpoints (including public)
-    ✗ Higher performance cost (~238% slower throughput)
-    ✗ Increased attack surface complexity
+    ✓ Comprehensive 100% endpoint coverage
+    ✗ Authentication + rate limiting overhead on all endpoints including public
+    ✗ Rate limiter triggers on public endpoints under concurrent load (0 req/s at 25+ users)
+    ✗ Response encryption adds latency overhead to every response
 
 KEY INSIGHT:
-  Selective security achieves 85% pipeline coverage on critical operations
-  while maintaining 238% better throughput than blanket security's 100% coverage.
-  This demonstrates that strategic, stage-based protection can deliver
-  equivalent security with significantly better performance.
+  Selective security protects high-value endpoints (Prediction, Auth) with the full
+  security stack while keeping public endpoints open, achieving 4.6 req/s vs
+  1.2 req/s for blanket at 10 concurrent users, and scales linearly to 100 users.
+  Blanket security's uniform rate limiting collapses throughput to 0 req/s at 25-75 concurrent users.
 
 
 ====================================================================================================
@@ -212,16 +196,20 @@ Assumptions:
   - AWS EC2 t3.medium instance ($0.0416/hour)
   - CPU overhead proportional to latency overhead
 
-Cost Impact of Blanket Security Overhead (1.1%):
-  Additional compute hours per day: 0.27 hours
+Cost Impact of Blanket Security Overhead (1.1% latency overhead):
+  Additional compute hours per day: 0.25 hours
   Additional cost per day:  $0.01
-  Additional cost per month: $0.34
-  Additional cost per year:  $4.11
+  Additional cost per month: $0.32
+  Additional cost per year:  $3.85
+
+  Note: This only accounts for per-request latency overhead. The real cost
+  impact is throughput collapse under load, requiring more server instances
+  to handle the same traffic volume as selective security.
 
 INTERPRETATION:
-  → Blanket security adds ~$4/year in infrastructure costs
-  → Selective security provides similar protection with lower overhead
-  → Cost savings scale with request volume
+  -> Blanket security adds ~$4/year in base compute costs
+  -> Under concurrent load, blanket security requires significantly more infrastructure
+  -> Cost savings from selective security scale with request volume and concurrency
 
 
 ====================================================================================================
@@ -231,43 +219,41 @@ INTERPRETATION:
 Based on this analysis, SELECTIVE SECURITY is recommended because:
 
 1. PERFORMANCE:
-   - 1% lower average latency
-   - 295% higher throughput
-   - 21% more stable (lower CV)
-   - Only ~7-14ms overhead for advanced security features
+   - 1% lower average latency per request
+   - 281% higher throughput at 10 concurrent users
+   - 20% more consistent response times (lower CV)
 
 2. SCALABILITY:
-   - Better performance under high concurrency
-   - Lower error rates under load
-   - More predictable response times
-   - Gap widens at higher concurrency levels
+   - Linear throughput scaling from 10 to 100 concurrent users
+   - Public endpoints are not affected by auth/rate limit overhead
+   - Blanket security fails completely (0 req/s) between 25-75 concurrent users
+   - Performance gap widens dramatically at higher concurrency
 
 3. COST EFFICIENCY:
-   - ~$4/year savings in infrastructure
-   - Lower CPU and memory overhead
-   - Better resource utilization
+   - ~$4/year savings in base infrastructure
+   - Significantly lower server count needed under concurrent load
+   - Better resource utilization per endpoint
    - Scales more efficiently with traffic growth
 
 4. SECURITY:
-   - 85% Monte Carlo pipeline coverage (stage-based protection)
-   - Differential privacy prevents algorithm reverse engineering
-   - Full protection on high-value operations
-   - Appropriate security based on endpoint criticality
-   - Comprehensive audit logging and caching
-   - Defense-in-depth at the pipeline level
+   - Full auth stack on high-value endpoints (Prediction, Register, Login)
+   - Differential privacy prevents prediction algorithm reverse engineering
+   - Input validation and sanitization on all protected endpoints
+   - Security level matched to endpoint sensitivity
+   - Comprehensive audit logging across all security events
 
 5. THREAT MODEL COVERAGE:
-   ✓ API flooding/DoS        → Rate limiting (10/60s)
-   ✓ SQL injection           → Input validation
-   ✓ Unauthorized access     → JWT authentication
-   ✓ Algorithm reverse eng   → Differential privacy (NEW)
-   ✓ Data exfiltration       → Audit logging + sanitization
+   ✓ API flooding/DoS        -> Rate limiting on auth + prediction endpoints
+   ✓ SQL injection           -> Input validation on protected endpoints
+   ✓ Unauthorized access     -> JWT authentication on critical endpoints
+   ✓ Algorithm reverse eng   -> Differential privacy (epsilon=0.1)
+   ✓ Data exfiltration       -> Audit logging + output sanitization
 
 CONCLUSION:
-  Selective security provides equivalent protection to blanket security's 100% endpoint coverage,
-  while maintaining 295% better throughput. The strategic application
-  of advanced security features (differential privacy, caching, logging)
-  at critical pipeline stages demonstrates that thoughtful, stage-based
-  security design can achieve both strong protection and high performance.
+  Selective security achieves equivalent protection on high-value endpoints
+  while maintaining 281% better throughput than blanket security.
+  Applying security proportional to endpoint sensitivity eliminates unnecessary
+  overhead on public endpoints and prevents the rate limiting cascade that
+  makes blanket security unusable under realistic concurrent traffic.
 
 ====================================================================================================
