@@ -7,6 +7,9 @@ Creates the lottery_data.db SQLite database with all required tables
 import sqlite3
 import os
 import csv
+import bcrypt
+import re
+
 from datetime import datetime
 
 DB_FILE = 'lottery_data.db'
@@ -265,7 +268,6 @@ def parse_jackpot(jackpot_str):
     # Handle "Winner" text
     if 'Winner' in cleaned or 'winner' in cleaned.lower():
         # Extract just the number part
-        import re
         match = re.search(r'[\d,]+', cleaned)
         if match:
             cleaned = match.group(0).replace(',', '')
@@ -286,9 +288,7 @@ def parse_jackpot(jackpot_str):
 def create_test_users():
     """Create test users for the demo"""
     print("👥 Creating test users...")
-    
-    import bcrypt
-    
+        
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
     

@@ -9,6 +9,8 @@ import pandas as pd
 import numpy as np
 import os
 import logging
+import random
+
 from pathlib import Path
 from datetime import datetime
 
@@ -452,3 +454,42 @@ def sanitize_predictions(predictions, include_metadata=False):
         sanitized.append(clean_pred)
     
     return sanitized
+
+def run_simulation(lottery_type, num_tickets, jackpot, user_id=None):
+    """
+    Shared simulation runner used by both selective and blanket security apps.
+    Handles predict_next_draw, sampling, and sanitization.
+
+    Args:
+        lottery_type: Lottery type string (powerball, megamillions, superlotto, fantasy5)
+        num_tickets: Number of tickets to generate
+        jackpot: Jackpot amount in dollars
+        user_id: User ID for audit logging
+
+    Returns:
+        List of sanitized ticket dicts with 'numbers' and 'special' keys
+    """
+
+    simulations = predict_next_draw(
+        upcoming_jackpot=jackpot,
+        draw_date=datetime.now().strftime('%Y-%m-%d'),
+        lottery_type=lottery_type,
+        n_simulations=num_tickets * 100,
+        window_years=5,
+        random_seed=None,
+        log_access=True,
+        user_id=user_id,
+        apply_privacy=True,
+        epsilon=0.1
+    )
+
+    selected = random.sample(simulations, min(num_tickets, len(simulations)))
+
+    tickets = []
+    for main_nums, special in selected:
+        tickets.append({
+            'numbers': list(main_nums),
+            'special': special
+        })
+
+    return sanitize_predictions(tickets, include_metadata=False)
