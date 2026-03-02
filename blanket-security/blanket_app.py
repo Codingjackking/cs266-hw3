@@ -48,7 +48,7 @@ def convert_numpy(obj):
         return obj.tolist()
     else:
         return obj
-    
+
 # Database connection
 def get_db():
     conn = sqlite3.connect('lottery_data.db')
@@ -64,39 +64,40 @@ def log_request(endpoint, user_id=None, status=200, duration=0, details=None):
     """Full audit logging for every request - DB + application log"""
     conn = get_db()
     cursor = conn.cursor()
-    
+
     cursor.execute('''
         INSERT INTO api_logs (timestamp, endpoint, user_id, status_code, response_time_ms)
         VALUES (?, ?, ?, ?, ?)
     ''', (datetime.now().isoformat(), endpoint, user_id, status, duration))
-    
+
     conn.commit()
     conn.close()
 
-    # SECURITY: Enhanced application logging 
+    # SECURITY: Enhanced application logging
     logger.info(f"Blanket endpoint access: endpoint={endpoint}, user_id={user_id}, status={status}, duration_ms={duration:.2f}, details={details}")
 
-# Rate limiting on ALL endpoints
+# Rate limiting on ALL endpoints — per user (falls back to IP for unauthenticated endpoints)
 request_counts = {}
 def rate_limit_all(max_requests=20, window=60):
-    """Rate limiting applied to every endpoint"""
+    """Rate limiting applied to every endpoint, keyed per user ID (or IP for auth endpoints)"""
     def decorator(f):
         @wraps(f)
         def wrapper(*args, **kwargs):
-            ip = request.remote_addr
+            # Use user_id if already set by require_auth_all, otherwise fall back to IP
+            key = getattr(request, 'user_id', None) or request.remote_addr
             now = time.time()
-            
-            if ip not in request_counts:
-                request_counts[ip] = []
-            
+
+            if key not in request_counts:
+                request_counts[key] = []
+
             # Clean old requests
-            request_counts[ip] = [t for t in request_counts[ip] if now - t < window]
-            
-            if len(request_counts[ip]) >= max_requests:
+            request_counts[key] = [t for t in request_counts[key] if now - t < window]
+
+            if len(request_counts[key]) >= max_requests:
                 log_request(request.path, None, 429, 0)
                 return jsonify({'error': 'Rate limit exceeded'}), 429
-            
-            request_counts[ip].append(now)
+
+            request_counts[key].append(now)
             return f(*args, **kwargs)
         return wrapper
     return decorator
@@ -107,11 +108,11 @@ def require_auth_all(f):
     @wraps(f)
     def wrapper(*args, **kwargs):
         token = request.headers.get('Authorization', '').replace('Bearer ', '')
-        
+
         if not token:
             log_request(request.path, None, 401, 0)
             return jsonify({'error': 'Authentication required'}), 401
-        
+
         try:
             payload = jwt.decode(token, app.config['SECRET_KEY'], algorithms=['HS256'])
             request.user_id = payload['user_id']
@@ -120,7 +121,7 @@ def require_auth_all(f):
         except jwt.InvalidTokenError:
             log_request(request.path, None, 401, 0)
             return jsonify({'error': 'Invalid token'}), 401
-    
+
     return wrapper
 
 # Input validation and sanitization for ALL endpoints
@@ -132,7 +133,7 @@ def validate_and_sanitize(f):
         if request.method == 'POST':
             if not request.is_json:
                 return jsonify({'error': 'Content-Type must be application/json'}), 400
-        
+
         # Sanitize path parameters
         for key, value in kwargs.items():
             if isinstance(value, str):
@@ -142,7 +143,7 @@ def validate_and_sanitize(f):
                     if pattern.lower() in value.lower():
                         log_request(request.path, None, 400, 0)
                         return jsonify({'error': 'Invalid input detected'}), 400
-        
+
         return f(*args, **kwargs)
     return wrapper
 
@@ -202,11 +203,13 @@ def encrypt_response(data):
 
 # ============================================================================
 # ALL ENDPOINTS - Full Security Stack
+# NOTE: @require_auth_all MUST come before @rate_limit_all so that
+#       request.user_id is set before the rate limiter key is resolved.
 # ============================================================================
 
 @app.route('/api/health', methods=['GET'])
-@rate_limit_all(max_requests=30, window=60)
 @require_auth_all
+@rate_limit_all(max_requests=30, window=60)
 @validate_and_sanitize
 def health():
     """
@@ -214,7 +217,7 @@ def health():
     Security Stack: Auth + Rate Limit + Validation + Logging + Encryption
     """
     start = time.time()
-    
+
     response_data = {'status': 'healthy', 'version': 'blanket-1.0'}
 
     duration = (time.time() - start) * 1000
@@ -222,8 +225,8 @@ def health():
     return jsonify(encrypt_response(response_data)), 200
 
 @app.route('/api/history/<lottery_type>', methods=['GET'])
-@rate_limit_all(max_requests=20, window=60)
 @require_auth_all
+@rate_limit_all(max_requests=20, window=60)
 @validate_and_sanitize
 def get_history(lottery_type):
     """
@@ -232,34 +235,34 @@ def get_history(lottery_type):
     Even though data is public, blanket approach protects everything
     """
     start = time.time()
-    
+
     valid_types = {
         'powerball': 'powerball_history',
         'megamillions': 'megamillions_history',
         'superlotto': 'superlotto_history',
         'fantasy5': 'fantasy5_history'
     }
-    
+
     if lottery_type not in valid_types:
         log_request(f'/api/history/{lottery_type}', request.user_id, 400, 0)
         return jsonify({'error': 'Invalid lottery type'}), 400
-    
+
     conn = get_db()
     cursor = conn.cursor()
-    
+
     query = f'SELECT * FROM {valid_types[lottery_type]} ORDER BY draw_date DESC LIMIT 20'
     cursor.execute(query)
     results = [dict(row) for row in cursor.fetchall()]
     conn.close()
-    
+
     duration = (time.time() - start) * 1000
     log_request(f'/api/history/{lottery_type}', request.user_id, 200, duration)
-    
+
     return jsonify(encrypt_response(results)), 200
 
 @app.route('/api/jackpots', methods=['GET'])
-@rate_limit_all(max_requests=20, window=60)
 @require_auth_all
+@rate_limit_all(max_requests=20, window=60)
 @validate_and_sanitize
 def get_jackpots():
     """
@@ -267,10 +270,10 @@ def get_jackpots():
     Security Stack: Auth + Rate Limit + Validation + Logging + Encryption
     """
     start = time.time()
-    
+
     conn = get_db()
     cursor = conn.cursor()
-    
+
     jackpots = {}
     for lottery, table in [
         ('powerball', 'powerball_history'),
@@ -281,17 +284,17 @@ def get_jackpots():
         cursor.execute(f'SELECT jackpot_amount FROM {table} ORDER BY draw_date DESC LIMIT 1')
         result = cursor.fetchone()
         jackpots[lottery] = result[0] if result else 0
-    
+
     conn.close()
-    
+
     duration = (time.time() - start) * 1000
     log_request('/api/jackpots', request.user_id, 200, duration)
-    
+
     return jsonify(encrypt_response(jackpots)), 200
 
 @app.route('/api/analyze/<lottery_type>', methods=['GET'])
-@rate_limit_all(max_requests=15, window=60)
 @require_auth_all
+@rate_limit_all(max_requests=15, window=60)
 @validate_and_sanitize
 def analyze_lottery(lottery_type):
     """
@@ -299,55 +302,55 @@ def analyze_lottery(lottery_type):
     Security Stack: Auth + Authorization + Rate Limit + Validation + Logging + Encryption
     """
     start = time.time()
-    
+
     # Authorization check
     if request.user_tier == 'free':
         log_request(f'/api/analyze/{lottery_type}', request.user_id, 403, 0)
         return jsonify({'error': 'Premium feature required'}), 403
-    
+
     valid_types = ['powerball', 'megamillions', 'superlotto', 'fantasy5']
     if lottery_type not in valid_types:
         log_request(f'/api/analyze/{lottery_type}', request.user_id, 400, 0)
         return jsonify({'error': 'Invalid lottery type'}), 400
-    
+
     table_map = {
         'powerball': 'powerball_history',
         'megamillions': 'megamillions_history',
         'superlotto': 'superlotto_history',
         'fantasy5': 'fantasy5_history'
     }
-    
+
     conn = get_db()
     cursor = conn.cursor()
-    
+
     table = table_map[lottery_type]
     cursor.execute(f'SELECT numbers FROM {table} ORDER BY draw_date DESC LIMIT 100')
     rows = cursor.fetchall()
-    
+
     all_numbers = []
     for row in rows:
         numbers = [int(n) for n in row[0].split(',')]
         all_numbers.extend(numbers)
-    
+
     frequency = Counter(all_numbers)
     most_common = frequency.most_common(10)
-    
+
     conn.close()
-    
+
     duration = (time.time() - start) * 1000
     log_request(f'/api/analyze/{lottery_type}', request.user_id, 200, duration)
-    
+
     response_data = {
         'lottery_type': lottery_type,
         'most_frequent': [{'number': n, 'count': c} for n, c in most_common],
         'total_draws_analyzed': len(rows)
     }
-    
+
     return jsonify(encrypt_response(response_data)), 200
 
 @app.route('/api/predict/<lottery_type>', methods=['POST'])
-@rate_limit_all(max_requests=5, window=60)
 @require_auth_all
+@rate_limit_all(max_requests=5, window=60)
 @validate_and_sanitize
 def predict_numbers(lottery_type):
     """
@@ -355,25 +358,25 @@ def predict_numbers(lottery_type):
     Security Stack: Auth + Authorization + Rate Limit + Validation + Logging + Encryption
     """
     start = time.time()
-    
+
     # Authorization
     if request.user_tier == 'free':
         log_request(f'/api/predict/{lottery_type}', request.user_id, 403, 0)
         return jsonify({'error': 'Premium feature required'}), 403
-    
+
     # Validation
     valid_types = ['powerball', 'megamillions', 'superlotto', 'fantasy5']
     if lottery_type not in valid_types:
         log_request(f'/api/predict/{lottery_type}', request.user_id, 400, 0)
         return jsonify({'error': 'Invalid lottery type'}), 400
-    
+
     data = request.get_json()
     num_tickets = data.get('num_tickets', 1)
-    
+
     if not isinstance(num_tickets, int) or num_tickets < 1 or num_tickets > 10:
         log_request(f'/api/predict/{lottery_type}', request.user_id, 400, 0)
         return jsonify({'error': 'num_tickets must be between 1 and 10'}), 400
-    
+
     # SECURITY: Check cache first to prevent computation abuse
     cached_result, is_cached = get_cached_or_compute(lottery_type, num_tickets, request.user_id)
 
@@ -396,10 +399,10 @@ def predict_numbers(lottery_type):
 
     # SECURITY: Cache the results
     cache_predictions(lottery_type, num_tickets, predictions)
-    
+
     duration = (time.time() - start) * 1000
     log_request(f'/api/predict/{lottery_type}', request.user_id, 200, duration, f"Predictions generated: {num_tickets} tickets")
-    
+
     response_data = {
         'lottery_type': lottery_type,
         'predictions': predictions,
@@ -412,7 +415,7 @@ def predict_numbers(lottery_type):
             'sanitized': True
         }
     }
-    
+
     response_data = convert_numpy(response_data)
     return jsonify(encrypt_response(response_data)), 200
 
@@ -439,7 +442,7 @@ def run_monte_carlo_simulation(lottery_type, num_tickets, user_id=None):
     return run_simulation(lottery_type, num_tickets, jackpot, user_id=user_id)
 
 # ============================================================================
-# AUTHENTICATION ENDPOINTS (Also with blanket security)
+# AUTHENTICATION ENDPOINTS (IP-based rate limit, no user yet)
 # ============================================================================
 
 @app.route('/api/register', methods=['POST'])
@@ -448,24 +451,24 @@ def run_monte_carlo_simulation(lottery_type, num_tickets, user_id=None):
 def register():
     """User registration with full security"""
     start = time.time()
-    
+
     data = request.get_json()
     username = data.get('username', '').strip()
     password = data.get('password', '')
-    
+
     if not username or not password:
         log_request('/api/register', None, 400, 0)
         return jsonify({'error': 'Username and password required'}), 400
-    
+
     if len(password) < 6:
         log_request('/api/register', None, 400, 0)
         return jsonify({'error': 'Password must be at least 6 characters'}), 400
-    
+
     password_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
-    
+
     conn = get_db()
     cursor = conn.cursor()
-    
+
     try:
         cursor.execute('''
             INSERT INTO users (username, password_hash, tier)
@@ -474,12 +477,12 @@ def register():
         conn.commit()
         user_id = cursor.lastrowid
         conn.close()
-        
+
         duration = (time.time() - start) * 1000
         log_request('/api/register', user_id, 201, duration)
-        
+
         logger.info(f"User registered: user_id={user_id}, username={username}")
-        
+
         return jsonify(encrypt_response({'message': 'User registered', 'user_id': user_id})), 201
     except sqlite3.IntegrityError:
         conn.close()
@@ -492,45 +495,45 @@ def register():
 def login():
     """User login with full security"""
     start = time.time()
-    
+
     data = request.get_json()
     username = data.get('username', '').strip()
     password = data.get('password', '')
-    
+
     conn = get_db()
     cursor = conn.cursor()
-    
+
     cursor.execute('SELECT id, password_hash, tier FROM users WHERE username = ?', (username,))
     user = cursor.fetchone()
     conn.close()
-    
+
     if not user:
         log_request('/api/login', None, 401, 0)
         return jsonify({'error': 'Invalid credentials'}), 401
-    
+
     if not bcrypt.checkpw(password.encode(), user[1].encode()):
         log_request('/api/login', None, 401, 0)
         return jsonify({'error': 'Invalid credentials'}), 401
-    
+
     token = jwt.encode({
         'user_id': int(user[0]),
         'tier': user[2],
         'exp': datetime.now(timezone.utc) + timedelta(days=7)
     }, app.config['SECRET_KEY'], algorithm='HS256')
-    
+
     duration = (time.time() - start) * 1000
     log_request('/api/login', user[0], 200, duration)
-    
+
     logger.info(f"User logged in: user_id={user[0]}, username={username}, tier={user[2]}")
-    
+
     response_data = {
         'token': token,
         'user_id': int(user[0]),
         'tier': user[2]
     }
-    
+
     return jsonify(encrypt_response(response_data)), 200
 
 if __name__ == '__main__':
-    logger.info("Starting Blanket Security API with Full Security Stack (100% coverage)")
+    logger.info("Starting Blanket Security API")
     app.run(host='0.0.0.0', port=5002, debug=True)

@@ -122,27 +122,28 @@ def log_request_critical(endpoint, user_id=None, status=200, duration=0, details
     # SECURITY: Enhanced application logging
     logger.info(f"Critical endpoint access: endpoint={endpoint}, user_id={user_id}, status={status}, duration_ms={duration:.2f}, details={details}")
 
-# Rate limiting only on CRITICAL endpoints
+# Rate limiting only on CRITICAL endpoints — per user (falls back to IP for unauthenticated endpoints)
 request_counts = {}
 def rate_limit_critical(max_requests=10, window=60):
-    """Rate limiting only for critical operations"""
+    """Rate limiting only for critical operations, keyed per user ID (or IP for auth endpoints)"""
     def decorator(f):
         @wraps(f)
         def wrapper(*args, **kwargs):
-            ip = request.remote_addr
+            # Use user_id if already set by require_auth_premium, otherwise fall back to IP
+            key = getattr(request, 'user_id', None) or request.remote_addr
             now = time.time()
 
-            if ip not in request_counts:
-                request_counts[ip] = []
+            if key not in request_counts:
+                request_counts[key] = []
 
             # Clean old requests
-            request_counts[ip] = [t for t in request_counts[ip] if now - t < window]
+            request_counts[key] = [t for t in request_counts[key] if now - t < window]
 
-            if len(request_counts[ip]) >= max_requests:
-                log_request_critical(request.path, None, 429, 0, f"Rate limit exceeded from IP: {ip}")
+            if len(request_counts[key]) >= max_requests:
+                log_request_critical(request.path, None, 429, 0, f"Rate limit exceeded for key: {key}")
                 return jsonify({'error': 'Rate limit exceeded'}), 429
 
-            request_counts[ip].append(now)
+            request_counts[key].append(now)
             return f(*args, **kwargs)
         return wrapper
     return decorator
@@ -189,7 +190,7 @@ def validate_critical(f):
     return wrapper
 
 # ============================================================================
-# PUBLIC ENDPOINTS - No Security 
+# PUBLIC ENDPOINTS - No Security (Fast)
 # ============================================================================
 
 @app.route('/api/health', methods=['GET'])
@@ -304,8 +305,8 @@ def analyze_lottery(lottery_type):
 # ============================================================================
 
 @app.route('/api/predict/<lottery_type>', methods=['POST'])
-@rate_limit_critical(max_requests=10, window=60)
 @require_auth_premium
+@rate_limit_critical(max_requests=10, window=60)
 @validate_critical
 def predict_numbers(lottery_type):
     """
@@ -313,7 +314,7 @@ def predict_numbers(lottery_type):
 
     Protection Features:
     - Authentication & Authorization
-    - Rate Limiting
+    - Rate Limiting (per user)
     - Input Validation
     - Differential Privacy (ε=0.1)
     - Output Sanitization
@@ -406,7 +407,7 @@ def run_monte_carlo_simulation_secure(lottery_type, num_tickets, user_id=None):
     return run_simulation(lottery_type, num_tickets, jackpot, user_id=user_id)
 
 # ============================================================================
-# AUTHENTICATION ENDPOINTS - Moderate Security
+# AUTHENTICATION ENDPOINTS - Moderate Security (IP-based rate limit, no user yet)
 # ============================================================================
 
 @app.route('/api/register', methods=['POST'])
@@ -484,5 +485,5 @@ def login():
     return jsonify(response_data), 200
 
 if __name__ == '__main__':
-    logger.info("Starting Selective Security API (selective endpoint protection)")
+    logger.info("Starting Selective Security API")
     app.run(host='0.0.0.0', port=5001, debug=True)

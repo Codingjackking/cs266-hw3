@@ -23,6 +23,9 @@ import traceback
 SELECTIVE_BASE = 'http://localhost:5001/api'
 BLANKET_BASE = 'http://localhost:5002/api'
 
+# Number of unique users to pre-register for blanket scalability testing
+BLANKET_USER_POOL_SIZE = 100
+
 
 class PerformanceMetrics:
     """Container for comprehensive performance metrics"""
@@ -54,14 +57,13 @@ class PerformanceMetrics:
         """Calculate comprehensive statistics"""
         if not self.latencies:
             return {}
-            
+
         duration = (self.end_time - self.start_time) if self.end_time and self.start_time else 0
-        
-        # Calculate standard deviation and coefficient of variation
+
         mean_lat = statistics.mean(self.latencies)
         std_dev = statistics.stdev(self.latencies) if len(self.latencies) > 1 else 0
         cv = (std_dev / mean_lat * 100) if mean_lat > 0 else 0
-        
+
         return {
             'mean_latency': mean_lat,
             'median_latency': statistics.median(self.latencies),
@@ -73,7 +75,7 @@ class PerformanceMetrics:
             'total_requests': self.successful_requests + self.failed_requests,
             'successful_requests': self.successful_requests,
             'failed_requests': self.failed_requests,
-            'success_rate': (self.successful_requests / (self.successful_requests + self.failed_requests) * 100) 
+            'success_rate': (self.successful_requests / (self.successful_requests + self.failed_requests) * 100)
                            if (self.successful_requests + self.failed_requests) > 0 else 0,
             'throughput': (self.successful_requests / duration) if duration > 0 else 0,
             'errors': dict(self.errors),
@@ -82,34 +84,84 @@ class PerformanceMetrics:
         }
 
 
-class PerformanceTester:
+class EnhancedPerformanceTester:
     def __init__(self):
         self.selective_token = None
-        self.blanket_token = None
+        self.blanket_token = None          # Single token for latency tests
+        self.blanket_tokens = []           # Token pool for scalability tests (one per user)
         self.results = {'selective': {}, 'blanket': {}}
         self.scalability_results = {'selective': [], 'blanket': []}
 
     def setup_users(self):
         print("Setting up test users...")
+
+        # ── Selective Security: single shared user ────────────────────────────
         resp = requests.post(f'{SELECTIVE_BASE}/login', json={
             'username': 'test_premium', 'password': 'password123'
         })
         if resp.status_code == 200:
             self.selective_token = resp.json()['token']
-            print("  \u2713 Logged into Selective Security")
+            print("  ✓ Logged into Selective Security")
         else:
-            print(f"  \u2717 Selective login failed: {resp.status_code}")
+            print(f"  ✗ Selective login failed: {resp.status_code}")
             raise Exception("Selective security login failed")
 
+        # ── Blanket Security: single token for latency tests ──────────────────
         resp = requests.post(f'{BLANKET_BASE}/login', json={
             'username': 'test_premium', 'password': 'password123'
         })
         if resp.status_code == 200:
             self.blanket_token = resp.json()['token']
-            print("  \u2713 Logged into Blanket Security")
+            print("  ✓ Logged into Blanket Security (primary user)")
         else:
-            print(f"  \u2717 Blanket login failed: {resp.status_code}")
+            print(f"  ✗ Blanket login failed: {resp.status_code}")
             raise Exception("Blanket security login failed")
+
+        # ── Blanket Security: register/login a pool of unique users ───────────
+        # Each simulated concurrent user gets its own account so they have
+        # separate per-user rate limit buckets during scalability tests.
+        print(f"\n  Provisioning {BLANKET_USER_POOL_SIZE} unique users for blanket scalability tests...")
+        self.blanket_tokens = []
+
+        for i in range(BLANKET_USER_POOL_SIZE):
+            username = f'scale_user_{i:03d}'
+            password = 'password123'
+
+            # Try login first — only register if user doesn't exist yet (401)
+            token = None
+            for attempt in range(5):
+                resp = requests.post(f'{BLANKET_BASE}/login', json={
+                    'username': username, 'password': password
+                })
+                if resp.status_code == 200:
+                    token = resp.json().get('token')
+                    break
+                elif resp.status_code == 401:
+                    # User doesn't exist yet — register then retry login
+                    requests.post(f'{BLANKET_BASE}/register', json={
+                        'username': username, 'password': password
+                    })
+                    # Don't count this as an attempt, loop will retry login
+                elif resp.status_code == 429:
+                    wait = 6 * (attempt + 1)  # 6s, 12s, 18s...
+                    time.sleep(wait)
+                else:
+                    print(f"    Warning: Could not login {username}: {resp.status_code}")
+                    break
+
+            if token:
+                self.blanket_tokens.append(token)
+            else:
+                print(f"    Warning: Failed to get token for {username} after retries")
+
+            # Login rate limit is 10 req/60s per IP = 1 per 6s minimum
+            # Use 6.5s to stay safely under. 100 users = ~11 min total provisioning.
+            time.sleep(6.5)
+
+            if (i + 1) % 10 == 0:
+                print(f"    Provisioned {i + 1}/{BLANKET_USER_POOL_SIZE} users...")
+
+        print(f"  ✓ Token pool ready: {len(self.blanket_tokens)} blanket users")
 
     def measure_request(self, base_url: str, endpoint: str, method='GET',
                         headers=None, data=None) -> Tuple[float, bool, str]:
@@ -147,7 +199,15 @@ class PerformanceTester:
         return metrics
 
     def test_scalability(self, base_url: str, endpoint: str, headers=None,
+                         token_pool: list = None,
                          concurrency_levels=[10, 25, 50, 75, 100], duration_per_level=15):
+        """
+        Test scalability at different concurrency levels.
+
+        If token_pool is provided, each concurrent worker is assigned its own
+        token from the pool (worker index mod pool size), simulating distinct
+        users with independent rate-limit buckets.
+        """
         results = []
         for num_workers in concurrency_levels:
             print(f"    Testing with {num_workers} concurrent users...")
@@ -156,16 +216,25 @@ class PerformanceTester:
             start_time = time.time()
             end_time = start_time + duration_per_level
 
-            def make_request():
+            def make_request(worker_idx=0):
                 try:
-                    resp = requests.get(f'{base_url}{endpoint}', headers=headers, timeout=5)
+                    # Pick per-worker token if pool available, otherwise use shared headers
+                    if token_pool:
+                        token = token_pool[worker_idx % len(token_pool)]
+                        worker_headers = {'Authorization': f'Bearer {token}'}
+                    else:
+                        worker_headers = headers
+                    resp = requests.get(f'{base_url}{endpoint}', headers=worker_headers, timeout=5)
                     return resp.status_code == 200
                 except:
                     return False
 
             with ThreadPoolExecutor(max_workers=num_workers) as executor:
                 while time.time() < end_time:
-                    futures = [executor.submit(make_request) for _ in range(num_workers)]
+                    futures = {
+                        executor.submit(make_request, i % num_workers): i
+                        for i in range(num_workers)
+                    }
                     for future in as_completed(futures):
                         if future.result():
                             request_count += 1
@@ -263,6 +332,7 @@ class PerformanceTester:
         print("\n\nSCALABILITY TESTS")
         print("-" * 80)
         print("Testing throughput at different concurrency levels (10, 25, 50, 75, 100 users)")
+        print("Each blanket worker uses its own unique token (independent rate-limit bucket)")
         print("15 seconds per level\n")
 
         print("Selective Security:")
@@ -271,10 +341,10 @@ class PerformanceTester:
             concurrency_levels=[10, 25, 50, 75, 100], duration_per_level=15
         )
 
-        print("\nBlanket Security:")
+        print("\nBlanket Security (per-user tokens):")
         self.scalability_results['blanket'] = self.test_scalability(
             BLANKET_BASE, '/jackpots',
-            headers={'Authorization': f'Bearer {self.blanket_token}'},
+            token_pool=self.blanket_tokens,
             concurrency_levels=[10, 25, 50, 75, 100], duration_per_level=15
         )
 
@@ -308,7 +378,7 @@ class PerformanceTester:
         fig.tight_layout()
         fig.savefig('outputs/latency_1_mean.png', dpi=300, bbox_inches='tight')
         plt.close(fig)
-        print("  \u2713 Saved: latency_1_mean.png")
+        print("  ✓ Saved: latency_1_mean.png")
 
         # Graph 2: Latency Distribution Box Plot
         fig, ax = plt.subplots(figsize=(8, 6))
@@ -331,7 +401,7 @@ class PerformanceTester:
         fig.tight_layout()
         fig.savefig('outputs/latency_2_distribution.png', dpi=300, bbox_inches='tight')
         plt.close(fig)
-        print("  \u2713 Saved: latency_2_distribution.png")
+        print("  ✓ Saved: latency_2_distribution.png")
 
         # Graph 3: Standard Deviation
         fig, ax = plt.subplots(figsize=(10, 6))
@@ -355,7 +425,7 @@ class PerformanceTester:
         fig.tight_layout()
         fig.savefig('outputs/latency_3_std_dev.png', dpi=300, bbox_inches='tight')
         plt.close(fig)
-        print("  \u2713 Saved: latency_3_std_dev.png")
+        print("  ✓ Saved: latency_3_std_dev.png")
 
         # Graph 4: Coefficient of Variation
         fig, ax = plt.subplots(figsize=(10, 6))
@@ -379,7 +449,7 @@ class PerformanceTester:
         fig.tight_layout()
         fig.savefig('outputs/latency_4_cv.png', dpi=300, bbox_inches='tight')
         plt.close(fig)
-        print("  \u2713 Saved: latency_4_cv.png")
+        print("  ✓ Saved: latency_4_cv.png")
 
     def generate_throughput_visualization(self):
         print("Generating throughput comparison visualizations...")
@@ -417,7 +487,7 @@ class PerformanceTester:
         fig.tight_layout()
         fig.savefig('outputs/throughput_1_comparison.png', dpi=300, bbox_inches='tight')
         plt.close(fig)
-        print("  \u2713 Saved: throughput_1_comparison.png")
+        print("  ✓ Saved: throughput_1_comparison.png")
 
         # Graph 2: Scalability Curve
         fig, ax = plt.subplots(figsize=(8, 6))
@@ -431,13 +501,14 @@ class PerformanceTester:
                 label='Blanket Security', color='#e74c3c')
         ax.set_xlabel('Concurrent Users', fontsize=12, fontweight='bold')
         ax.set_ylabel('Throughput (req/s)', fontsize=12, fontweight='bold')
-        ax.set_title('Scalability: Throughput vs Concurrency', fontsize=14, fontweight='bold')
+        ax.set_title('Scalability: Throughput vs Concurrency\n(Each blanket user has independent token)',
+                     fontsize=13, fontweight='bold')
         ax.legend(fontsize=11)
         ax.grid(True, alpha=0.3, linestyle='--')
         fig.tight_layout()
         fig.savefig('outputs/throughput_2_scalability.png', dpi=300, bbox_inches='tight')
         plt.close(fig)
-        print("  \u2713 Saved: throughput_2_scalability.png")
+        print("  ✓ Saved: throughput_2_scalability.png")
 
         # Graph 3: Error Rate
         fig, ax = plt.subplots(figsize=(10, 6))
@@ -468,7 +539,7 @@ class PerformanceTester:
         fig.tight_layout()
         fig.savefig('outputs/throughput_3_error_rate.png', dpi=300, bbox_inches='tight')
         plt.close(fig)
-        print("  \u2713 Saved: throughput_3_error_rate.png")
+        print("  ✓ Saved: throughput_3_error_rate.png")
 
         # Graph 4: Success Rate
         fig, ax = plt.subplots(figsize=(10, 6))
@@ -494,7 +565,7 @@ class PerformanceTester:
         fig.tight_layout()
         fig.savefig('outputs/throughput_4_success_rate.png', dpi=300, bbox_inches='tight')
         plt.close(fig)
-        print("  \u2713 Saved: throughput_4_success_rate.png")
+        print("  ✓ Saved: throughput_4_success_rate.png")
 
     def generate_comprehensive_report(self):
         print("\nGenerating comprehensive analysis report...")
@@ -505,6 +576,7 @@ class PerformanceTester:
         report.append("=" * 100)
         report.append("")
         report.append(f"Test Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        report.append(f"Blanket scalability test: {len(self.blanket_tokens)} unique users, each with independent rate-limit bucket")
         report.append("")
 
         report.append("EXECUTIVE SUMMARY")
@@ -542,10 +614,10 @@ class PerformanceTester:
         else:
             report.append(f"  Blanket security was fully blocked (0 req/s) vs latency improvement of {lat_improvement:.1f}%")
         report.append("  This suggests blanket security causes:")
-        report.append("  - Rate limiting bottlenecks under concurrent load")
         report.append("  - Authentication overhead amplification at scale")
         report.append("  - Unnecessary blocking on public endpoints")
         report.append("  - Token verification bottlenecks")
+        report.append("  - Response encryption overhead on every request")
         report.append("")
 
         report.append("\n" + "=" * 100)
@@ -555,35 +627,40 @@ class PerformanceTester:
 
         avg_sel_std = statistics.mean([self.results['selective'][s]['std_dev'] * 1000 for s in scenarios])
         avg_blan_std = statistics.mean([self.results['blanket'][s]['std_dev'] * 1000 for s in scenarios])
+        stability_improvement = ((avg_blan_std - avg_sel_std) / avg_blan_std * 100) if avg_blan_std > 0 else 0
+
         avg_sel_cv = statistics.mean([self.results['selective'][s]['cv'] for s in scenarios])
         avg_blan_cv = statistics.mean([self.results['blanket'][s]['cv'] for s in scenarios])
 
         report.append("Average Standard Deviation:")
         report.append(f"  Selective: {avg_sel_std:.2f}ms")
         report.append(f"  Blanket:   {avg_blan_std:.2f}ms")
-        if avg_blan_std > 0:
-            report.append(f"  Selective is {((avg_blan_std - avg_sel_std) / avg_blan_std * 100):.1f}% more stable")
+        if stability_improvement > 0:
+            report.append(f"  Selective is {stability_improvement:.1f}% more stable")
+        else:
+            report.append(f"  Blanket is {abs(stability_improvement):.1f}% more stable")
         report.append("")
-
         report.append("Average Coefficient of Variation:")
         report.append(f"  Selective: {avg_sel_cv:.1f}%")
         report.append(f"  Blanket:   {avg_blan_cv:.1f}%")
         report.append("")
-
         report.append("INTERPRETATION:")
-        report.append("  \u2713 Lower standard deviation = less jitter")
-        report.append("  \u2713 Lower CV = more predictable performance")
-        report.append("  -> Selective security provides MORE STABLE response times")
+        report.append("  ✓ Lower standard deviation = less jitter")
+        report.append("  ✓ Lower CV = more predictable performance")
+        report.append(f"  -> {'Selective' if avg_sel_cv <= avg_blan_cv else 'Blanket'} security provides MORE STABLE response times")
         report.append("")
 
         report.append("\n" + "=" * 100)
         report.append("2. DETAILED ENDPOINT ANALYSIS")
         report.append("=" * 100)
+        report.append("")
 
         for scenario in scenarios:
             sel = self.results['selective'][scenario]
             blan = self.results['blanket'][scenario]
-            report.append(f"\n{scenario}:")
+            improvement = ((blan['mean_latency'] - sel['mean_latency']) / blan['mean_latency'] * 100)
+
+            report.append(f"{scenario}:")
             report.append(f"  Selective Security:")
             report.append(f"    Mean:    {sel['mean_latency']*1000:.2f}ms  |  Median: {sel['median_latency']*1000:.2f}ms")
             report.append(f"    Std Dev: {sel['std_dev']*1000:.2f}ms  |  CV: {sel['cv']:.1f}%")
@@ -594,12 +671,15 @@ class PerformanceTester:
             report.append(f"    Std Dev: {blan['std_dev']*1000:.2f}ms  |  CV: {blan['cv']:.1f}%")
             report.append(f"    P95:     {blan['p95_latency']*1000:.2f}ms")
             report.append(f"    Success Rate: {blan['success_rate']:.1f}%")
-            improvement = ((blan['mean_latency'] - sel['mean_latency']) / blan['mean_latency']) * 100
             report.append(f"  -> Performance Improvement: {improvement:.1f}% faster with selective security")
+            report.append("")
 
-        report.append("\n\n" + "=" * 100)
+        report.append("\n" + "=" * 100)
         report.append("3. SCALABILITY ANALYSIS")
         report.append("=" * 100)
+        report.append("")
+        report.append("Note: Blanket security scalability tested with unique per-user tokens")
+        report.append("      (each concurrent worker has its own account and independent rate-limit bucket)")
         report.append("")
 
         report.append("Throughput at Different Concurrency Levels:")
@@ -619,9 +699,10 @@ class PerformanceTester:
 
         report.append("")
         report.append("INTERPRETATION:")
-        report.append("  -> Selective security scales linearly with increasing load")
-        report.append("  -> Blanket security collapses under concurrent load due to rate limiting on all endpoints")
-        report.append("  -> The performance gap widens significantly at higher concurrency levels")
+        report.append("  -> Selective security scales linearly: public endpoints have zero auth/rate-limit overhead")
+        report.append("  -> Blanket security overhead comes from JWT verification + encryption on every request")
+        report.append("  -> With per-user tokens, rate limiting no longer artificially collapses blanket throughput")
+        report.append("  -> Remaining gap reflects true cost of applying full security stack to all endpoints")
         report.append("")
 
         report.append("\n" + "=" * 100)
@@ -636,51 +717,42 @@ class PerformanceTester:
         report.append("  Auth Endpoints (Rate Limited):         2  (Register, Login)")
         report.append("  Total Endpoint Coverage:              ~57% (4/7 endpoints with security)")
         report.append("")
-
         report.append("Selective Security - Security Features:")
-        report.append("  \u2713 Authentication & Authorization (JWT) on critical endpoints")
-        report.append("  \u2713 Rate Limiting (10 requests/60 seconds) on auth + prediction endpoints")
-        report.append("  \u2713 Input Validation & Sanitization on prediction endpoint")
-        report.append("  \u2713 Differential Privacy (epsilon=0.1) on prediction output")
-        report.append("  \u2713 Output Sanitization on prediction endpoint")
-        report.append("  \u2713 Comprehensive Audit Logging")
-        report.append("  \u2713 Result Caching (5-minute TTL)")
+        report.append("  ✓ Authentication & Authorization (JWT) on critical endpoints")
+        report.append("  ✓ Rate Limiting (10 req/60s, per user) on auth + prediction endpoints")
+        report.append("  ✓ Input Validation & Sanitization on prediction endpoint")
+        report.append("  ✓ Differential Privacy (epsilon=0.1) on prediction output")
+        report.append("  ✓ Output Sanitization on prediction endpoint")
+        report.append("  ✓ Comprehensive Audit Logging")
+        report.append("  ✓ Result Caching (5-minute TTL)")
         report.append("")
 
         report.append("Blanket Security - Endpoint Coverage:")
         report.append("  All Endpoints (Full Auth):             7  (All endpoints)")
         report.append("  Total Endpoint Coverage:              100% of endpoints")
         report.append("")
-
         report.append("Blanket Security - Security Features:")
-        report.append("  \u2713 Authentication & Authorization (JWT) on ALL endpoints")
-        report.append("  \u2713 Rate Limiting on ALL endpoints")
-        report.append("  \u2713 Input Validation & Sanitization on ALL endpoints")
-        report.append("  \u2713 Response Encryption overhead on ALL endpoints")
-        report.append("  \u2713 Differential Privacy (epsilon=0.1) on prediction output")
-        report.append("  \u2713 Comprehensive Audit Logging")
-        report.append("  \u2713 Result Caching (5-minute TTL)")
+        report.append("  ✓ Authentication & Authorization (JWT) on ALL endpoints")
+        report.append("  ✓ Rate Limiting (per user) on ALL endpoints")
+        report.append("  ✓ Input Validation & Sanitization on ALL endpoints")
+        report.append("  ✓ Response Encryption overhead on ALL endpoints")
+        report.append("  ✓ Differential Privacy (epsilon=0.1) on prediction output")
+        report.append("  ✓ Comprehensive Audit Logging")
+        report.append("  ✓ Result Caching (5-minute TTL)")
         report.append("")
 
         report.append("ANALYSIS:")
         report.append("  Selective Security:")
-        report.append("    \u2713 Concentrates security overhead on high-value endpoints")
-        report.append("    \u2713 Public endpoints remain unblocked under concurrent load")
-        report.append("    \u2713 Differential privacy on prediction output prevents reverse engineering")
-        report.append("    \u2713 Balances security with performance")
+        report.append("    ✓ Concentrates security overhead on high-value endpoints")
+        report.append("    ✓ Public endpoints serve requests with zero auth/encryption overhead")
+        report.append("    ✓ Differential privacy on prediction output prevents reverse engineering")
+        report.append("    ✓ Balances security with performance")
         report.append("")
         report.append("  Blanket Security:")
-        report.append("    \u2713 Comprehensive 100% endpoint coverage")
-        report.append("    \u2717 Authentication + rate limiting overhead on all endpoints including public")
-        report.append("    \u2717 Rate limiter triggers on public endpoints under concurrent load (0 req/s at 25+ users)")
-        report.append("    \u2717 Response encryption adds latency overhead to every response")
-        report.append("")
-
-        report.append("KEY INSIGHT:")
-        report.append("  Selective security protects high-value endpoints (Prediction, Auth) with the full")
-        report.append(f"  security stack while keeping public endpoints open, achieving {sel_throughput:.1f} req/s vs")
-        report.append(f"  {blan_throughput:.1f} req/s for blanket at 10 concurrent users, and scales linearly to 100 users.")
-        report.append("  Blanket security's uniform rate limiting collapses throughput to 0 req/s at 25-75 concurrent users.")
+        report.append("    ✓ Comprehensive 100% endpoint coverage")
+        report.append("    ✗ JWT verification overhead on every request including public endpoints")
+        report.append("    ✗ Response encryption adds latency overhead to every response")
+        report.append("    ✗ Higher infrastructure cost per request at scale")
         report.append("")
 
         report.append("\n" + "=" * 100)
@@ -699,21 +771,15 @@ class PerformanceTester:
         report.append("  - AWS EC2 t3.medium instance ($0.0416/hour)")
         report.append("  - CPU overhead proportional to latency overhead")
         report.append("")
-
         report.append(f"Cost Impact of Blanket Security Overhead ({overhead_percent:.1f}% latency overhead):")
         report.append(f"  Additional compute hours per day: {additional_hours:.2f} hours")
         report.append(f"  Additional cost per day:  ${additional_cost_per_day:.2f}")
         report.append(f"  Additional cost per month: ${additional_cost_per_month:.2f}")
         report.append(f"  Additional cost per year:  ${additional_cost_per_year:.2f}")
         report.append("")
-        report.append("  Note: This only accounts for per-request latency overhead. The real cost")
-        report.append("  impact is throughput collapse under load, requiring more server instances")
-        report.append("  to handle the same traffic volume as selective security.")
-        report.append("")
-
         report.append("INTERPRETATION:")
         report.append(f"  -> Blanket security adds ~${additional_cost_per_year:.0f}/year in base compute costs")
-        report.append("  -> Under concurrent load, blanket security requires significantly more infrastructure")
+        report.append("  -> Under concurrent load, blanket security requires more infrastructure due to auth overhead")
         report.append("  -> Cost savings from selective security scale with request volume and concurrency")
         report.append("")
 
@@ -721,7 +787,6 @@ class PerformanceTester:
         report.append("6. RECOMMENDATIONS")
         report.append("=" * 100)
         report.append("")
-
         report.append("Based on this analysis, SELECTIVE SECURITY is recommended because:")
         report.append("")
         report.append("1. PERFORMANCE:")
@@ -732,24 +797,17 @@ class PerformanceTester:
             report.append(f"   - Blanket fully rate-limited (0 req/s vs {sel_throughput:.1f} req/s) under load")
         if avg_blan_cv > 0:
             report.append(f"   - {((avg_blan_cv - avg_sel_cv) / avg_blan_cv * 100):.0f}% more consistent response times (lower CV)")
-        else:
-            report.append("   - More consistent response times")
         report.append("")
-
         report.append("2. SCALABILITY:")
-        report.append("   - Linear throughput scaling from 10 to 100 concurrent users")
-        report.append("   - Public endpoints are not affected by auth/rate limit overhead")
-        report.append("   - Blanket security fails completely (0 req/s) between 25-75 concurrent users")
-        report.append("   - Performance gap widens dramatically at higher concurrency")
+        report.append("   - Public endpoints have zero auth/encryption overhead, scale freely")
+        report.append("   - Blanket security applies JWT + encryption to every request regardless of sensitivity")
+        report.append("   - Performance gap reflects true overhead of blanket approach, not testing artifacts")
         report.append("")
-
         report.append("3. COST EFFICIENCY:")
         report.append(f"   - ~${additional_cost_per_year:.0f}/year savings in base infrastructure")
-        report.append("   - Significantly lower server count needed under concurrent load")
         report.append("   - Better resource utilization per endpoint")
         report.append("   - Scales more efficiently with traffic growth")
         report.append("")
-
         report.append("4. SECURITY:")
         report.append("   - Full auth stack on high-value endpoints (Prediction, Register, Login)")
         report.append("   - Differential privacy prevents prediction algorithm reverse engineering")
@@ -757,15 +815,13 @@ class PerformanceTester:
         report.append("   - Security level matched to endpoint sensitivity")
         report.append("   - Comprehensive audit logging across all security events")
         report.append("")
-
         report.append("5. THREAT MODEL COVERAGE:")
-        report.append("   \u2713 API flooding/DoS        -> Rate limiting on auth + prediction endpoints")
-        report.append("   \u2713 SQL injection           -> Input validation on protected endpoints")
-        report.append("   \u2713 Unauthorized access     -> JWT authentication on critical endpoints")
-        report.append("   \u2713 Algorithm reverse eng   -> Differential privacy (epsilon=0.1)")
-        report.append("   \u2713 Data exfiltration       -> Audit logging + output sanitization")
+        report.append("   ✓ API flooding/DoS        -> Rate limiting on auth + prediction endpoints")
+        report.append("   ✓ SQL injection           -> Input validation on protected endpoints")
+        report.append("   ✓ Unauthorized access     -> JWT authentication on critical endpoints")
+        report.append("   ✓ Algorithm reverse eng   -> Differential privacy (epsilon=0.1)")
+        report.append("   ✓ Data exfiltration       -> Audit logging + output sanitization")
         report.append("")
-
         report.append("CONCLUSION:")
         if blan_throughput > 0:
             report.append("  Selective security achieves equivalent protection on high-value endpoints")
@@ -774,8 +830,8 @@ class PerformanceTester:
             report.append("  Selective security achieves equivalent protection on high-value endpoints")
             report.append("  while blanket security collapses entirely under concurrent load.")
         report.append("  Applying security proportional to endpoint sensitivity eliminates unnecessary")
-        report.append("  overhead on public endpoints and prevents the rate limiting cascade that")
-        report.append("  makes blanket security unusable under realistic concurrent traffic.")
+        report.append("  overhead on public endpoints and ensures results reflect true policy costs,")
+        report.append("  not testing artifacts from shared rate-limit buckets.")
         report.append("")
         report.append("=" * 100)
         report.append("")
@@ -784,15 +840,16 @@ class PerformanceTester:
         with open('outputs/comprehensive_performance_report.txt', 'w', encoding='utf-8') as f:
             f.write(report_text)
         print(report_text)
-        print("\n  \u2713 Saved: comprehensive_performance_report.txt")
+        print("\n  ✓ Saved: comprehensive_performance_report.txt")
 
 
 def main():
     print("Lottery Oracle - Security Performance Testing")
     print("Selective vs Blanket Endpoint Security Comparison")
+    print(f"Blanket scalability: {BLANKET_USER_POOL_SIZE} unique users with independent tokens")
     print()
 
-    tester = PerformanceTester()
+    tester = EnhancedPerformanceTester()
 
     try:
         tester.setup_users()
