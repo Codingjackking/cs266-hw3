@@ -73,10 +73,9 @@ def log_request(endpoint, user_id=None, status=200, duration=0, details=None):
     conn.commit()
     conn.close()
 
-    # SECURITY: Enhanced application logging
     logger.info(f"Blanket endpoint access: endpoint={endpoint}, user_id={user_id}, status={status}, duration_ms={duration:.2f}, details={details}")
 
-# Rate limiting on ALL endpoints — per user (falls back to IP for unauthenticated endpoints)
+# Rate limiting on ALL endpoints - per user (falls back to IP for unauthenticated endpoints)
 request_counts = {}
 def rate_limit_all(max_requests=20, window=60):
     """Rate limiting applied to every endpoint, keyed per user ID (or IP for auth endpoints)"""
@@ -190,11 +189,10 @@ def cache_predictions(lottery_type, num_tickets, predictions, cache_ttl=CACHE_TT
     for key in keys_to_delete:
         del prediction_cache[key]
 
-# Encryption simulation (adds overhead)
+# Encryption simulation 
 def encrypt_response(data):
     """Simulate response encryption overhead"""
-    # In production, this would be TLS/SSL encryption
-    # Simulating encryption delay
+
     json_data = json.dumps(data)
     hash_obj = hashlib.sha256(json_data.encode())
     _ = hash_obj.hexdigest()
@@ -203,8 +201,6 @@ def encrypt_response(data):
 
 # ============================================================================
 # ALL ENDPOINTS - Full Security Stack
-# NOTE: @require_auth_all MUST come before @rate_limit_all so that
-#       request.user_id is set before the rate limiter key is resolved.
 # ============================================================================
 
 @app.route('/api/health', methods=['GET'])

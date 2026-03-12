@@ -105,7 +105,6 @@ def cache_predictions(lottery_type, num_tickets, predictions, cache_ttl=CACHE_TT
 # SELECTIVE SECURITY: Only critical endpoints have security
 # ============================================================================
 
-# Enhanced logging for CRITICAL endpoints only
 def log_request_critical(endpoint, user_id=None, status=200, duration=0, details=None):
     """Audit logging only for critical operations"""
     conn = get_db()
@@ -119,10 +118,9 @@ def log_request_critical(endpoint, user_id=None, status=200, duration=0, details
     conn.commit()
     conn.close()
 
-    # SECURITY: Enhanced application logging
     logger.info(f"Critical endpoint access: endpoint={endpoint}, user_id={user_id}, status={status}, duration_ms={duration:.2f}, details={details}")
 
-# Rate limiting only on CRITICAL endpoints — per user (falls back to IP for unauthenticated endpoints)
+# Rate limiting only on CRITICAL endpoints - per user (falls back to IP for unauthenticated endpoints)
 request_counts = {}
 def rate_limit_critical(max_requests=10, window=60):
     """Rate limiting only for critical operations, keyed per user ID (or IP for auth endpoints)"""
@@ -190,7 +188,7 @@ def validate_critical(f):
     return wrapper
 
 # ============================================================================
-# PUBLIC ENDPOINTS - No Security (Fast)
+# PUBLIC ENDPOINTS - No Security 
 # ============================================================================
 
 @app.route('/api/health', methods=['GET'])
@@ -341,7 +339,7 @@ def predict_numbers(lottery_type):
         log_request_critical(f'/api/predict/{lottery_type}', request.user_id, 400, 0, "Invalid num_tickets")
         return jsonify({'error': 'num_tickets must be between 1 and 10'}), 400
 
-    # SECURITY: Check cache first to prevent computation abuse
+    # Check cache first to prevent computation abuse
     cached_result, is_cached = get_cached_or_compute(lottery_type, num_tickets, request.user_id)
 
     if is_cached:
@@ -358,7 +356,6 @@ def predict_numbers(lottery_type):
 
         return jsonify(convert_numpy(response_data)), 200
 
-    # SECURITY: Run Monte Carlo simulation with enhanced security
     predictions = run_monte_carlo_simulation_secure(
         lottery_type,
         num_tickets,

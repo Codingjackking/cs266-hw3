@@ -84,7 +84,7 @@ class PerformanceMetrics:
         }
 
 
-class EnhancedPerformanceTester:
+class PerformanceTester:
     def __init__(self):
         self.selective_token = None
         self.blanket_token = None          # Single token for latency tests
@@ -849,7 +849,7 @@ def main():
     print(f"Blanket scalability: {BLANKET_USER_POOL_SIZE} unique users with independent tokens")
     print()
 
-    tester = EnhancedPerformanceTester()
+    tester = PerformanceTester()
 
     try:
         tester.setup_users()
